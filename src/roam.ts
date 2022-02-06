@@ -1,6 +1,7 @@
 import {config} from './config';
 import {AugmentedBlock, Block, BlockWithParent} from './types';
 
+
 export const pullBlocksWithTag = async (tag: string): Promise<Block[]> => {
   const c = window.roamAlphaAPI.q(
     '[\
@@ -15,6 +16,7 @@ export const pullBlocksWithTag = async (tag: string): Promise<Block[]> => {
 
   return c.map((b: [Block, any]) => b[0]);
 };
+
 
 // TODO: Very similar to above code.
 export const pullBlocksUnderTag = async (
@@ -99,6 +101,24 @@ export const pullBlocksUnderTag = async (
   return Array.from(childBlocks.values());
 };
 
+export const pullBlocksEnclosingTags = async (tag: string): Promise<Block[]> => {
+  const blocksWithParents : [Block, Block] = window.roamAlphaAPI.q(
+    '[\
+         :find (pull ?childBlock [*]) (pull ?parentBlock [*]) \
+         :in $ ?pagetitle \
+         :where \
+             [?childBlock :block/refs ?referencedPage] \
+             [?parentBlock :block/children ?childBlock] \
+             [?referencedPage :node/title ?pagetitle] \
+     ]',
+     tag
+  );
+  return blocksWithParents.map(([child, parent]) => {
+    child['directParent'] = parent;
+    return child;
+  });
+}
+
 const ROAM_CLOZE_PATTERN = /{c(\d+):([^}:]*)}/g;
 const ROAM_CLOZE_WITH_HINT_PATTERN = /{c(\d*):([^}:]*):([^}]*)}/g;
 
@@ -122,7 +142,7 @@ export const noteMetadata = (block: AugmentedBlock) => {
   });
 };
 
-const basicMarkdownToHtml = (s: string) => {
+export const basicMarkdownToHtml = (s: string) => {
   s = s.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
   s = s.replace(/"__(.*?)__/g, '<i>$1</i>');
   return s;

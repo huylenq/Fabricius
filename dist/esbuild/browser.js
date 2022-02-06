@@ -59,7 +59,7 @@
     config: () => config_exports
   });
   var CLOZE_TAG = "srs/cloze";
-  var ANKI_DECK_FOR_CLOZE_TAG = "Max Infinity";
+  var ANKI_DECK_FOR_CLOZE_TAG = "New::Roam";
   var ANKI_MODEL_FOR_CLOZE_TAG = "ClozeRoam";
   var ANKI_FIELD_FOR_CLOZE_TEXT = "Text";
   var ANKI_FIELD_FOR_CLOZE_TAG = "Metadata";
@@ -111,6 +111,13 @@
       childBlocks.set(block.uid, block);
     }
     return Array.from(childBlocks.values());
+  });
+  var pullBlocksEnclosingTags = (tag) => __async(void 0, null, function* () {
+    const blocksWithParents = window.roamAlphaAPI.q("[         :find (pull ?childBlock [*]) (pull ?parentBlock [*])          :in $ ?pagetitle          :where              [?childBlock :block/refs ?referencedPage]              [?parentBlock :block/children ?childBlock]              [?referencedPage :node/title ?pagetitle]      ]", tag);
+    return blocksWithParents.map(([child, parent]) => {
+      child["directParent"] = parent;
+      return child;
+    });
   });
   var ROAM_CLOZE_PATTERN = /{c(\d+):([^}:]*)}/g;
   var ROAM_CLOZE_WITH_HINT_PATTERN = /{c(\d*):([^}:]*):([^}]*)}/g;
@@ -183,6 +190,9 @@
     });
   };
   var blockToAnkiSyntax = (block) => {
+    if (block["noteModel"] === "Basic") {
+      return blockToBasicAnkiCard(block);
+    }
     const fieldsObj = {};
     fieldsObj[config_exports.ANKI_FIELD_FOR_CLOZE_TEXT] = convertToCloze(block.string);
     fieldsObj[config_exports.ANKI_FIELD_FOR_CLOZE_TAG] = noteMetadata(block);
@@ -202,13 +212,29 @@
       fields: fieldsObj
     };
   };
+  var blockToBasicAnkiCard = (block) => {
+    if (block["noteModel"] !== "Basic") {
+      throw new Error("Shouldn't call blockToBasicAnkiCard with non-basic card types.");
+    }
+    const fieldsObj = {};
+    fieldsObj["Front"] = basicMarkdownToHtml(block.string).replace(/\s*#srs\/question/, "");
+    fieldsObj["Back"] = block.directParent.string;
+    fieldsObj["Metadata"] = noteMetadata(block);
+    return {
+      deckName: config_exports.ANKI_DECK_FOR_CLOZE_TAG,
+      modelName: "Basic",
+      fields: fieldsObj
+    };
+  };
 
   // src/main.ts
   var syncNow = () => __async(void 0, null, function* () {
     const singleBlocks = yield pullBlocksWithTag(config_exports.CLOZE_TAG);
+    const questionBlocks = yield pullBlocksEnclosingTags("srs/question");
+    questionBlocks.forEach((b) => b["noteModel"] = "Basic");
     const groupBlocks = yield pullBlocksUnderTag(config_exports.GROUPED_CLOZE_TAG, config_exports.TITLE_CLOZE_TAG);
     const groupClozeBlocks = groupBlocks.filter(blockContainsCloze);
-    const blocks = singleBlocks.concat(groupClozeBlocks);
+    const blocks = singleBlocks.concat(questionBlocks).concat(groupClozeBlocks);
     const blockWithNid = yield Promise.all(blocks.map((b) => processSingleBlock(b)));
     const blocksWithNids = blockWithNid.filter(([_, nid]) => nid !== config_exports.NO_NID);
     const blocksWithNoNids = blockWithNid.filter(([_, nid]) => nid === config_exports.NO_NID).map((b) => b[0]);
@@ -265,7 +291,32 @@
     window.requestAnimationFrame(renderFabriciusButton);
   }
   var updateBlock = (blockWithNote) => __async(void 0, null, function* () {
+    if ("Front" in blockWithNote.note.fields) {
+      return updateBasicBlock(blockWithNote);
+    }
     const noteText = blockWithNote.note.fields[config_exports.ANKI_FIELD_FOR_CLOZE_TEXT]["value"];
+    const blockText = convertToRoamBlock(noteText);
+    const updateRes = window.roamAlphaAPI.updateBlock({
+      block: {
+        uid: blockWithNote.block.uid,
+        string: blockText
+      }
+    });
+    if (!updateRes) {
+      console.log("[updateBlock] failed to update");
+      return;
+    }
+    yield new Promise((r) => setTimeout(r, 200));
+    const updateTime = window.roamAlphaAPI.q(`[ :find (pull ?e [ :edit/time ]) :where [?e :block/uid "${blockWithNote.block.uid}"]]`)[0][0].time;
+    blockWithNote.block.time = updateTime;
+    blockWithNote.block.string = blockText;
+    return updateNote(blockWithNote);
+  });
+  var updateBasicBlock = (blockWithNote) => __async(void 0, null, function* () {
+    if (!("Front" in blockWithNote.note.fields)) {
+      throw new Error("Shouldn't call updateBasicBlock on non-Basic notes");
+    }
+    const noteText = blockWithNote.note.fields["Front"]["value"];
     const blockText = convertToRoamBlock(noteText);
     const updateRes = window.roamAlphaAPI.updateBlock({
       block: {

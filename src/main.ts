@@ -9,7 +9,7 @@ import {
   invokeAnkiConnect,
 } from './anki';
 import {config} from './config';
-import {convertToCloze, pullBlocksUnderTag, pullBlocksWithTag} from './roam';
+import { convertToCloze, pullBlocksEnclosingTags, pullBlocksUnderTag, pullBlocksWithTag} from './roam';
 
 // Core sync logic
 const syncNow = async () => {
@@ -18,6 +18,8 @@ const syncNow = async () => {
   const singleBlocks: AugmentedBlock[] = await pullBlocksWithTag(
     config.CLOZE_TAG
   );
+  const questionBlocks = await pullBlocksEnclosingTags('srs/question')
+  questionBlocks.forEach(b => b['noteModel'] = 'Basic')
   // groupBlocks are augmented with information from their parent.
   const groupBlocks = await pullBlocksUnderTag(
     config.GROUPED_CLOZE_TAG,
@@ -25,7 +27,7 @@ const syncNow = async () => {
   );
   const groupClozeBlocks: AugmentedBlock[] =
     groupBlocks.filter(blockContainsCloze);
-  const blocks: AugmentedBlock[] = singleBlocks.concat(groupClozeBlocks);
+  const blocks: AugmentedBlock[] = singleBlocks.concat(questionBlocks).concat(groupClozeBlocks);
   // console.log(JSON.stringify(singleBlocks, null, 2));
   // console.log(JSON.stringify(groupClozeBlocks, null, 2));
   const blockWithNid: [Block, number][] = await Promise.all(
@@ -134,8 +136,41 @@ try {
 
 // updateBlock mutates `blockWithNote`.
 const updateBlock = async (blockWithNote: BlockWithNote): Promise<any> => {
+  if ('Front' in blockWithNote.note.fields) {
+    return updateBasicBlock(blockWithNote);
+  }
   const noteText =
     blockWithNote.note.fields[config.ANKI_FIELD_FOR_CLOZE_TEXT]['value'];
+  const blockText = convertToRoamBlock(noteText);
+  // success? - boolean
+  const updateRes = window.roamAlphaAPI.updateBlock({
+    block: {
+      uid: blockWithNote.block.uid,
+      string: blockText,
+    },
+  });
+  if (!updateRes) {
+    console.log('[updateBlock] failed to update');
+    return;
+  }
+  // The block will have a newer modified time than the Anki note. But we don't know what value it is. We query for it after waiting, and update the note in Anki.
+  await new Promise(r => setTimeout(r, 200));
+  const updateTime = window.roamAlphaAPI.q(
+    `[ :find (pull ?e [ :edit/time ]) :where [?e :block/uid "${blockWithNote.block.uid}"]]`
+  )[0][0].time;
+  // console.log(updateTime);
+  blockWithNote.block.time = updateTime;
+  blockWithNote.block.string = blockText;
+  return updateNote(blockWithNote);
+};
+
+const updateBasicBlock = async (blockWithNote: BlockWithNote): Promise<any> => {
+  if (!('Front' in blockWithNote.note.fields)) {
+    throw new Error("Shouldn't call updateBasicBlock on non-Basic notes");
+  }
+
+  const noteText =
+    blockWithNote.note.fields['Front']['value'];
   const blockText = convertToRoamBlock(noteText);
   // success? - boolean
   const updateRes = window.roamAlphaAPI.updateBlock({

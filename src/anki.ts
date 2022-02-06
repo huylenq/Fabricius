@@ -1,6 +1,6 @@
 import {config} from './config';
 import {AugmentedBlock, Block, BlockWithNote, NewNote} from './types';
-import {convertToCloze, noteMetadata} from './roam';
+import {convertToCloze, noteMetadata, basicMarkdownToHtml} from './roam';
 
 // Returns anki notes with the given note IDs.
 /*
@@ -85,6 +85,10 @@ export const invokeAnkiConnect = (
 };
 
 const blockToAnkiSyntax = (block: AugmentedBlock): NewNote => {
+  if (block['noteModel'] === 'Basic') {
+    return blockToBasicAnkiCard(block);
+  }
+
   const fieldsObj: any = {};
   // TODO: extract tags in a certain format. use namespaces.
   fieldsObj[config.ANKI_FIELD_FOR_CLOZE_TEXT] = convertToCloze(block.string);
@@ -120,3 +124,18 @@ const blockToAnkiSyntax = (block: AugmentedBlock): NewNote => {
     fields: fieldsObj,
   };
 };
+
+const blockToBasicAnkiCard = (block: AugmentedBlock): NewNote => {
+  if (block['noteModel'] !== 'Basic') {
+    throw new Error("Shouldn't call blockToBasicAnkiCard with non-basic card types.")
+  }
+  const fieldsObj: any = {};
+  fieldsObj['Front'] = basicMarkdownToHtml(block.string).replace(/\s*#srs\/question/, '');
+  fieldsObj['Back'] = block.directParent.string;
+  fieldsObj['Metadata'] = noteMetadata(block);
+  return {
+    deckName: config.ANKI_DECK_FOR_CLOZE_TAG,
+    modelName: 'Basic',
+    fields: fieldsObj,
+  };
+}

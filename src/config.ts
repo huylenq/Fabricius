@@ -4,7 +4,7 @@ export * as config from './config';
 // A block tagged with CLOZE_TAG is synced.
 export const CLOZE_TAG = 'srs/cloze';
 // The Anki deck to be synced to
-export const ANKI_DECK_FOR_CLOZE_TAG = 'Max Infinity';
+export const ANKI_DECK_FOR_CLOZE_TAG = 'New::Roam';
 // The Anki model (note type) that will be synced
 export const ANKI_MODEL_FOR_CLOZE_TAG = 'ClozeRoam';
 

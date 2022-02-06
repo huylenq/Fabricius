@@ -5,6 +5,8 @@ export interface Block {
   uid: string;
   parents: {id: string}[];
   page: {id: string};
+  directParent?: Block;
+  noteModel?: string
 }
 
 export interface BlockWithParent extends Block {
