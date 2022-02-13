@@ -27,6 +27,7 @@ export interface Note {
   fields: any;
   block_time: string;
   block_uid: string;
+  modelName: string;
 }
 
 export interface NewNote {

@@ -8,7 +8,7 @@ import {
   batchAddNotes,
   invokeAnkiConnect,
 } from './anki';
-import {config} from './config';
+import { ANKI_FIELD_FOR_CLOZE_TEXT, config} from './config';
 import { convertToCloze, pullBlocksEnclosingTags, pullBlocksUnderTag, pullBlocksWithTag} from './roam';
 
 // Core sync logic
@@ -18,8 +18,8 @@ const syncNow = async () => {
   const singleBlocks: AugmentedBlock[] = await pullBlocksWithTag(
     config.CLOZE_TAG
   );
-  const questionBlocks = await pullBlocksEnclosingTags('srs/question')
-  questionBlocks.forEach(b => b['noteModel'] = 'Basic')
+  const questionBlocks = await pullBlocksEnclosingTags('srs/description');
+  questionBlocks.forEach(b => b['noteModel'] = 'BasicRoam')
   // groupBlocks are augmented with information from their parent.
   const groupBlocks = await pullBlocksUnderTag(
     config.GROUPED_CLOZE_TAG,
@@ -45,6 +45,12 @@ const syncNow = async () => {
   // The schema for `blockWithNote` is shown in `NOTES.md`.
   const blockWithNote: BlockWithNote[] = blocksWithNids.map((block, i) => {
     const _existingNote = existingNotes[i];
+    if (!(config.ANKI_FIELD_FOR_CLOZE_TAG in _existingNote.fields)) {
+      throw new Error(`The current fields set of an existing Anki note doesn't contain "${config.ANKI_FIELD_FOR_CLOZE_TAG}". The note: ${JSON.stringify(_existingNote)}`);
+    }
+    if (!('value' in _existingNote.fields[config.ANKI_FIELD_FOR_CLOZE_TAG])) {
+      throw new Error(`HERE: ${JSON.stringify(_existingNote)}`);
+    }
     const noteMetadata = JSON.parse(
       _existingNote['fields'][config.ANKI_FIELD_FOR_CLOZE_TAG]['value']
     );
@@ -62,11 +68,20 @@ const syncNow = async () => {
     x => x.block.time > x.note.block_time
   );
   const newerInAnki = blockWithNote.filter(
-    x =>
-      x.block.time <= x.note.block_time &&
+    x => {
       // TODO(better diff algorithm here)
+      let frontFaceField;
+      switch (x.note['modelName']) {
+        case config.ANKI_MODEL_FOR_BASIC_TAG:
+          frontFaceField = 'Front';
+          break;
+        case config.ANKI_MODEL_FOR_CLOZE_TAG:
+          frontFaceField = ANKI_FIELD_FOR_CLOZE_TEXT;
+      }
+      return x.block.time <= x.note.block_time &&
       convertToCloze(x.block.string) !==
-        x.note['fields'][config.ANKI_FIELD_FOR_CLOZE_TEXT]['value']
+        x.note['fields'][frontFaceField]['value']
+    }
   );
   console.log('[syncNow] total synced blocks ' + blocks.length);
   console.log('[syncNow] newer in roam ' + newerInRoam.length);
@@ -139,6 +154,9 @@ const updateBlock = async (blockWithNote: BlockWithNote): Promise<any> => {
   if ('Front' in blockWithNote.note.fields) {
     return updateBasicBlock(blockWithNote);
   }
+  if (!(config.ANKI_FIELD_FOR_CLOZE_TEXT in blockWithNote.note.fields['Front'])) {
+    throw new Error(`'value' is not a property the note ${config.ANKI_FIELD_FOR_CLOZE_TEXT} field of Anki note: ${blockWithNote.note}`);
+  }
   const noteText =
     blockWithNote.note.fields[config.ANKI_FIELD_FOR_CLOZE_TEXT]['value'];
   const blockText = convertToRoamBlock(noteText);
@@ -168,7 +186,9 @@ const updateBasicBlock = async (blockWithNote: BlockWithNote): Promise<any> => {
   if (!('Front' in blockWithNote.note.fields)) {
     throw new Error("Shouldn't call updateBasicBlock on non-Basic notes");
   }
-
+  if (!('value' in blockWithNote.note.fields['Front'])) {
+    throw new Error('`value` is not in the note Front field!');
+  }
   const noteText =
     blockWithNote.note.fields['Front']['value'];
   const blockText = convertToRoamBlock(noteText);
@@ -203,15 +223,17 @@ export const processSingleBlock = async (
     config.ANKI_CONNECT_FINDNOTES,
     config.ANKI_CONNECT_VERSION,
     {
-      query: `${config.ANKI_FIELD_FOR_CLOZE_TAG}:re:${block.uid} AND note:${config.ANKI_MODEL_FOR_CLOZE_TAG}`,
+      query: `${config.ANKI_FIELD_FOR_CLOZE_TAG}:re:${block.uid} AND (note:${config.ANKI_MODEL_FOR_CLOZE_TAG} OR note:BasicRoam)`,
     }
   );
   if (nid.length === 0) {
     // create card in Anki
+    console.log(`Found no note with UID: ${block.uid}`);
     return [block, config.NO_NID];
   }
   // TODO(can be improved)
   // assume that only 1 note matches
+  console.log(`Found note(s) with NID: ${block.uid}`);
   return [block, nid[0]];
 };
 

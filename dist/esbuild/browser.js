@@ -50,6 +50,7 @@
     ANKI_FIELD_FOR_CLOZE_TEXT: () => ANKI_FIELD_FOR_CLOZE_TEXT,
     ANKI_FIELD_FOR_GROUP_HEADER: () => ANKI_FIELD_FOR_GROUP_HEADER,
     ANKI_FIELD_FOR_TITLE: () => ANKI_FIELD_FOR_TITLE,
+    ANKI_MODEL_FOR_BASIC_TAG: () => ANKI_MODEL_FOR_BASIC_TAG,
     ANKI_MODEL_FOR_CLOZE_TAG: () => ANKI_MODEL_FOR_CLOZE_TAG,
     CLOZE_TAG: () => CLOZE_TAG,
     GROUPED_CLOZE_TAG: () => GROUPED_CLOZE_TAG,
@@ -63,6 +64,7 @@
   var ANKI_MODEL_FOR_CLOZE_TAG = "ClozeRoam";
   var ANKI_FIELD_FOR_CLOZE_TEXT = "Text";
   var ANKI_FIELD_FOR_CLOZE_TAG = "Metadata";
+  var ANKI_MODEL_FOR_BASIC_TAG = "BasicRoam";
   var GROUPED_CLOZE_TAG = "srs/cloze-g";
   var ANKI_FIELD_FOR_GROUP_HEADER = "Extra";
   var TITLE_CLOZE_TAG = "srs/cloze-t";
@@ -83,7 +85,7 @@
   var pullBlocksUnderTag = (groupTag, titleTag) => __async(void 0, null, function* () {
     const c = yield window.roamAlphaAPI.q("[                        :find (pull ?childBlock [*]) (pull ?parentBlock [*])                         :in $ ?pagetitle                        :where                             [?parentBlock :block/refs ?referencedPage]                            [?childBlock :block/parents ?parentBlock]                            [?referencedPage :node/title ?pagetitle]                        ]", groupTag);
     const c2 = yield window.roamAlphaAPI.q("[                        :find (pull ?childBlock [*]) (pull ?parentBlock [*]) (pull ?parentBlock2 [*])                         :in $ ?pagetitle ?pagetitle2                        :where                             [?parentBlock :block/refs ?referencedPage]                            [?parentBlock2 :block/refs ?referencedPage2]                            [?childBlock :block/parents ?parentBlock]                             [?childBlock :block/parents ?parentBlock2]                            [?referencedPage :node/title ?pagetitle]                            [?referencedPage2 :node/title ?pagetitle2]                        ]", groupTag, titleTag);
-    const childBlocks = /* @__PURE__ */ new Map();
+    const childBlocks = new Map();
     for (const index in c) {
       const block = c[index][0];
       const parent = c[index][1];
@@ -190,7 +192,7 @@
     });
   };
   var blockToAnkiSyntax = (block) => {
-    if (block["noteModel"] === "Basic") {
+    if (block["noteModel"] === "BasicRoam") {
       return blockToBasicAnkiCard(block);
     }
     const fieldsObj = {};
@@ -213,16 +215,16 @@
     };
   };
   var blockToBasicAnkiCard = (block) => {
-    if (block["noteModel"] !== "Basic") {
+    if (block["noteModel"] !== "BasicRoam") {
       throw new Error("Shouldn't call blockToBasicAnkiCard with non-basic card types.");
     }
     const fieldsObj = {};
-    fieldsObj["Front"] = basicMarkdownToHtml(block.string).replace(/\s*#srs\/question/, "");
-    fieldsObj["Back"] = block.directParent.string;
+    fieldsObj["Front"] = basicMarkdownToHtml(block.string).replace(/\s*#srs\/description/, "");
+    fieldsObj["Back"] = basicMarkdownToHtml(block.directParent.string);
     fieldsObj["Metadata"] = noteMetadata(block);
     return {
       deckName: config_exports.ANKI_DECK_FOR_CLOZE_TAG,
-      modelName: "Basic",
+      modelName: "BasicRoam",
       fields: fieldsObj
     };
   };
@@ -230,8 +232,8 @@
   // src/main.ts
   var syncNow = () => __async(void 0, null, function* () {
     const singleBlocks = yield pullBlocksWithTag(config_exports.CLOZE_TAG);
-    const questionBlocks = yield pullBlocksEnclosingTags("srs/question");
-    questionBlocks.forEach((b) => b["noteModel"] = "Basic");
+    const questionBlocks = yield pullBlocksEnclosingTags("srs/description");
+    questionBlocks.forEach((b) => b["noteModel"] = "BasicRoam");
     const groupBlocks = yield pullBlocksUnderTag(config_exports.GROUPED_CLOZE_TAG, config_exports.TITLE_CLOZE_TAG);
     const groupClozeBlocks = groupBlocks.filter(blockContainsCloze);
     const blocks = singleBlocks.concat(questionBlocks).concat(groupClozeBlocks);
@@ -241,13 +243,33 @@
     const existingNotes = yield batchFindNotes(blocksWithNids);
     const blockWithNote = blocksWithNids.map((block, i) => {
       const _existingNote = existingNotes[i];
+      if (!(config_exports.ANKI_FIELD_FOR_CLOZE_TAG in _existingNote.fields)) {
+        throw new Error(`The current fields set of an existing Anki note doesn't contain "${config_exports.ANKI_FIELD_FOR_CLOZE_TAG}". The note: ${JSON.stringify(_existingNote)}`);
+      }
+      if (!("value" in _existingNote.fields[config_exports.ANKI_FIELD_FOR_CLOZE_TAG])) {
+        throw new Error(`HERE: ${JSON.stringify(_existingNote)}`);
+      }
       const noteMetadata2 = JSON.parse(_existingNote["fields"][config_exports.ANKI_FIELD_FOR_CLOZE_TAG]["value"]);
       _existingNote.block_time = noteMetadata2["block_time"];
       _existingNote.block_uid = noteMetadata2["block_uid"];
       return { nid: block[1], block: block[0], note: _existingNote };
     });
     const newerInRoam = blockWithNote.filter((x) => x.block.time > x.note.block_time);
-    const newerInAnki = blockWithNote.filter((x) => x.block.time <= x.note.block_time && convertToCloze(x.block.string) !== x.note["fields"][config_exports.ANKI_FIELD_FOR_CLOZE_TEXT]["value"]);
+    const newerInAnki = blockWithNote.filter((x) => {
+      if (!(config_exports.ANKI_FIELD_FOR_CLOZE_TEXT in x.note.fields)) {
+        console.error(">>> HERE <<<");
+        console.info(x.note);
+      }
+      let frontFaceField;
+      switch (x.note["modelName"]) {
+        case config_exports.ANKI_MODEL_FOR_BASIC_TAG:
+          frontFaceField = "Front";
+          break;
+        case config_exports.ANKI_MODEL_FOR_CLOZE_TAG:
+          frontFaceField = ANKI_FIELD_FOR_CLOZE_TEXT;
+      }
+      return x.block.time <= x.note.block_time && convertToCloze(x.block.string) !== x.note["fields"][frontFaceField]["value"];
+    });
     console.log("[syncNow] total synced blocks " + blocks.length);
     console.log("[syncNow] newer in roam " + newerInRoam.length);
     console.log("[syncNow] newer in anki " + newerInAnki.length);
@@ -294,6 +316,9 @@
     if ("Front" in blockWithNote.note.fields) {
       return updateBasicBlock(blockWithNote);
     }
+    if (!(config_exports.ANKI_FIELD_FOR_CLOZE_TEXT in blockWithNote.note.fields["Front"])) {
+      throw new Error(`'value' is not a property the note ${config_exports.ANKI_FIELD_FOR_CLOZE_TEXT} field of Anki note: ${blockWithNote.note}`);
+    }
     const noteText = blockWithNote.note.fields[config_exports.ANKI_FIELD_FOR_CLOZE_TEXT]["value"];
     const blockText = convertToRoamBlock(noteText);
     const updateRes = window.roamAlphaAPI.updateBlock({
@@ -316,6 +341,9 @@
     if (!("Front" in blockWithNote.note.fields)) {
       throw new Error("Shouldn't call updateBasicBlock on non-Basic notes");
     }
+    if (!("value" in blockWithNote.note.fields["Front"])) {
+      throw new Error("`value` is not in the note Front field!");
+    }
     const noteText = blockWithNote.note.fields["Front"]["value"];
     const blockText = convertToRoamBlock(noteText);
     const updateRes = window.roamAlphaAPI.updateBlock({
@@ -336,11 +364,13 @@
   });
   var processSingleBlock = (block) => __async(void 0, null, function* () {
     const nid = yield invokeAnkiConnect(config_exports.ANKI_CONNECT_FINDNOTES, config_exports.ANKI_CONNECT_VERSION, {
-      query: `${config_exports.ANKI_FIELD_FOR_CLOZE_TAG}:re:${block.uid} AND note:${config_exports.ANKI_MODEL_FOR_CLOZE_TAG}`
+      query: `${config_exports.ANKI_FIELD_FOR_CLOZE_TAG}:re:${block.uid} AND (note:${config_exports.ANKI_MODEL_FOR_CLOZE_TAG} OR note:BasicRoam)`
     });
     if (nid.length === 0) {
+      console.log(`Found no note with UID: ${block.uid}`);
       return [block, config_exports.NO_NID];
     }
+    console.log(`Found note(s) with NID: ${block.uid}`);
     return [block, nid[0]];
   });
   var blockContainsCloze = (block) => {

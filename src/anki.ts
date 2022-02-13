@@ -85,7 +85,7 @@ export const invokeAnkiConnect = (
 };
 
 const blockToAnkiSyntax = (block: AugmentedBlock): NewNote => {
-  if (block['noteModel'] === 'Basic') {
+  if (block['noteModel'] === 'BasicRoam') {
     return blockToBasicAnkiCard(block);
   }
 
@@ -126,16 +126,16 @@ const blockToAnkiSyntax = (block: AugmentedBlock): NewNote => {
 };
 
 const blockToBasicAnkiCard = (block: AugmentedBlock): NewNote => {
-  if (block['noteModel'] !== 'Basic') {
+  if (block['noteModel'] !== 'BasicRoam') {
     throw new Error("Shouldn't call blockToBasicAnkiCard with non-basic card types.")
   }
   const fieldsObj: any = {};
-  fieldsObj['Front'] = basicMarkdownToHtml(block.string).replace(/\s*#srs\/question/, '');
-  fieldsObj['Back'] = block.directParent.string;
+  fieldsObj['Front'] = basicMarkdownToHtml(block.string).replace(/\s*#srs\/description/, '');
+  fieldsObj['Back'] = basicMarkdownToHtml(block.directParent.string);
   fieldsObj['Metadata'] = noteMetadata(block);
   return {
     deckName: config.ANKI_DECK_FOR_CLOZE_TAG,
-    modelName: 'Basic',
+    modelName: 'BasicRoam',
     fields: fieldsObj,
   };
 }

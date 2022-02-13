@@ -13,6 +13,8 @@ export const ANKI_FIELD_FOR_CLOZE_TEXT = 'Text';
 // The note field that will store the UID (used by the code to associate the Anki note with the Roam block)
 export const ANKI_FIELD_FOR_CLOZE_TAG = 'Metadata';
 
+export const ANKI_MODEL_FOR_BASIC_TAG = 'BasicRoam';
+
 // Advanced
 // A block tagged with GROUPED_CLOZE_TAG is not synced, but its children, if they have clozes, are.
 export const GROUPED_CLOZE_TAG = 'srs/cloze-g';
